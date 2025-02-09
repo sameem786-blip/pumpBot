@@ -39,12 +39,19 @@ async def main():
         sender_name = sender.username if sender.username else f"User({sender.id})"
         message_text = event.text.strip()
 
-        # Check for hidden/spoiler messages
+        # Handle spoiler and other message entities
         if event.message.entities:
-            for entity in event.message.entities:
-                if isinstance(entity, MessageEntitySpoiler):
-                    print(f"[SPOILER] Hidden message revealed but ignored: {message_text}")
-                    return  # Ignore this message and wait for the next one
+            spoiler_detected = any(isinstance(e, MessageEntitySpoiler) for e in event.message.entities)
+            bold_text = extract_bold_text(event.message.entities, message_text)
+
+            if spoiler_detected:
+                print(f"[SPOILER] Hidden message revealed but ignored: {message_text}")
+                # Even if it's a spoiler, check for bold text to ensure valid coin name
+                if bold_text and re.fullmatch(r"[A-Z]{2,6}", bold_text):
+                    print(f"[BUY] Detected valid coin from spoiler: {bold_text}")
+                    awaiting_coin_name = False  # Reset flag after processing valid coin name
+                    return
+                return  # Ignore spoilers unless they contain valid bold text
 
         # Handle expected messages
         if awaiting_coin_name:
