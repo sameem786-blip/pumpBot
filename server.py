@@ -1,5 +1,7 @@
 from telethon import TelegramClient, events
+from telethon.tl.types import MessageEntitySpoiler, MessageEntityBold
 import asyncio
+import re
 
 # Replace with your own Telegram API credentials
 API_ID = 28298985  # <-- Replace with your actual API ID
@@ -8,18 +10,27 @@ API_HASH = "39f421942304070739872145d0eb6f2e"  # <-- Replace with your actual AP
 # Create a Telegram client session
 client = TelegramClient("message_logger_session", API_ID, API_HASH)
 
-# Flags to track next message
-awaiting_xt = False
-awaiting_poloniex = False
+# Flag to track awaiting coin name
+awaiting_coin_name = False
+
+def extract_bold_text(entities, text):
+    """Extract bold text from a message."""
+    if not entities:
+        return None
+    for entity in entities:
+        if isinstance(entity, MessageEntityBold):
+            return text[entity.offset : entity.offset + entity.length]
+    return None
 
 async def main():
+    global awaiting_coin_name
     print("Starting Telegram client...")
     await client.start()
     print("Client started successfully! Listening for messages...\n")
 
     @client.on(events.NewMessage)
     async def handler(event):
-        global awaiting_xt, awaiting_poloniex
+        global awaiting_coin_name
 
         sender = await event.get_sender()
         chat = await event.get_chat()
@@ -28,23 +39,35 @@ async def main():
         sender_name = sender.username if sender.username else f"User({sender.id})"
         message_text = event.text.strip()
 
+        # Check for hidden/spoiler messages
+        if event.message.entities:
+            for entity in event.message.entities:
+                if isinstance(entity, MessageEntitySpoiler):
+                    print(f"[SPOILER] Hidden message revealed but ignored: {message_text}")
+                    return  # Ignore this message and wait for the next one
+
         # Handle expected messages
-        if awaiting_xt:
-            print(f"XT: {message_text}")  # Log in XT format
-            awaiting_xt = False  # Reset flag
-        elif awaiting_poloniex:
-            print(f"Poloniex: {message_text}")  # Log in Poloniex format
-            awaiting_poloniex = False  # Reset flag
+        if awaiting_coin_name:
+            if re.fullmatch(r"\*\*[A-Z]{2,6}\*\*", message_text):
+                coin_name = message_text.strip("*")  # Extract coin name
+                print(f"[BUY] Detected valid coin: {coin_name}")
+                awaiting_coin_name = False  # Reset flag after receiving valid coin name
+                # Call buy function here if needed
+            else:
+                print(f"[IGNORE] Misleading message received: {message_text}")
+                return  # Continue waiting for the correct message
 
         # Check for trigger messages
-        elif "Next name is money name" in message_text:
-            print(f"[{chat_name}] ({sender_name}): {message_text}")
-            awaiting_xt = True  # Set flag to log next message as XT
         elif "Next message is the coin name" in message_text:
             print(f"[{chat_name}] ({sender_name}): {message_text}")
-            awaiting_poloniex = True  # Set flag to log next message as Poloniex
+            awaiting_coin_name = True
         else:
             print(f"[{chat_name}] ({sender_name}): {message_text}")  # Log all messages normally
+
+    @client.on(events.CallbackQuery)
+    async def callback_handler(event):
+        print(f"[BUTTON CLICKED] Data: {event.data}")
+        await event.answer("Button clicked!")  # Reply to button click
 
     await client.run_until_disconnected()
 
